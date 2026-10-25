@@ -79,6 +79,14 @@ class HhClientTests(unittest.TestCase):
         with self.assertRaises(HhApiError):
             client.get_vacancy("missing")
 
+    def test_explains_403_when_access_token_is_missing(self):
+        def opener(request, timeout):
+            raise HTTPError(request.full_url, 403, "Forbidden", {}, io.BytesIO(b"{}"))
+
+        client = HhClient(self.settings(oauth_token=None), opener=opener)
+        with self.assertRaisesRegex(HhApiError, "HH_ACCESS_TOKEN"):
+            client.search({"text": "data analyst"})
+
 
 if __name__ == "__main__":
     unittest.main()

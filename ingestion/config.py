@@ -20,10 +20,15 @@ class HhSettings:
     @classmethod
     def from_env(cls, env: Optional[Mapping[str, str]] = None) -> "HhSettings":
         values = os.environ if env is None else env
+        access_token = (
+            values.get("HH_ACCESS_TOKEN")
+            or values.get("HH_OAUTH_TOKEN")
+            or ""
+        ).strip() or None
         return cls(
             base_url=values.get("HH_BASE_URL", cls.base_url).rstrip("/"),
             user_agent=values.get("HH_USER_AGENT", DEFAULT_USER_AGENT).strip(),
-            oauth_token=values.get("HH_OAUTH_TOKEN") or None,
+            oauth_token=access_token,
             timeout_seconds=float(values.get("HH_TIMEOUT_SECONDS", "30")),
             max_retries=int(values.get("HH_MAX_RETRIES", "5")),
             retry_base_seconds=float(values.get("HH_RETRY_BASE_SECONDS", "1")),

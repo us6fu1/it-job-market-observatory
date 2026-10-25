@@ -83,7 +83,15 @@ class HhClient:
                     }
                 )
                 if not retryable or attempt >= attempts:
-                    raise HhApiError("HH API вернул HTTP {} для {}".format(exc.code, path)) from exc
+                    if exc.code == 403 and not self.settings.oauth_token:
+                        raise HhApiError(
+                            "HH API запретил запрос {} без токена. "
+                            "Для живого поиска задайте HH_ACCESS_TOKEN; "
+                            "sample-режим работает без токена.".format(path)
+                        ) from exc
+                    raise HhApiError(
+                        "HH API вернул HTTP {} для {}".format(exc.code, path)
+                    ) from exc
                 retry_after = exc.headers.get("Retry-After") if exc.headers else None
                 delay = self._retry_delay(attempt, retry_after)
                 self._sleep(delay)
