@@ -1,0 +1,24 @@
+{
+  "date_from": "2026-10-01",
+  "date_to": "2026-10-07",
+  "segments": [
+    {
+      "job_group": "data_analyst",
+      "text": "аналитик данных",
+      "area_ids": [],
+      "professional_role_ids": []
+    },
+    {
+      "job_group": "bi_developer",
+      "text": "BI разработчик",
+      "area_ids": [],
+      "professional_role_ids": []
+    },
+    {
+      "job_group": "data_engineer",
+      "text": "data engineer",
+      "area_ids": [],
+      "professional_role_ids": []
+    }
+  ]
+}

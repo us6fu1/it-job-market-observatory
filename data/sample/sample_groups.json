@@ -1,0 +1,11 @@
+{
+  "data_kind": "synthetic_demo",
+  "assignments": [
+    {"vacancy_id": "demo-1001", "job_group": "data_analyst"},
+    {"vacancy_id": "demo-1002", "job_group": "data_analyst"},
+    {"vacancy_id": "demo-1003", "job_group": "bi_developer"},
+    {"vacancy_id": "demo-1004", "job_group": "bi_developer"},
+    {"vacancy_id": "demo-1005", "job_group": "data_engineer"},
+    {"vacancy_id": "demo-1006", "job_group": "data_engineer"}
+  ]
+}

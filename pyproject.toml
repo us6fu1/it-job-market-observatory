@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "it-job-market-observatory"
+version = "0.1.0"
+description = "Наблюдение за рынком вакансий Data Analyst, BI Developer и Data Engineer"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+  "psycopg[binary]>=3.1,<4",
+  "streamlit>=1.50,<2",
+]
+
+[project.scripts]
+job-market = "ingestion.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["ingestion*"]
