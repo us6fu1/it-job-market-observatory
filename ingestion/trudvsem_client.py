@@ -380,4 +380,3 @@ class TrudvsemClient:
             raise HhApiError(
                 "Карточка {} отсутствует в текущей странице источника".format(vacancy_id)
             ) from exc
-

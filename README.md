@@ -1,120 +1,168 @@
 # IT Job Market Observatory
 
-Пет-проект для наблюдения за вакансиями Data Analyst, BI Developer и Data
-Engineer. Он сохраняет историю снимков HeadHunter, строит PostgreSQL-слои
-RAW/STG/DWH/MART и показывает витрины в Streamlit.
+[![CI](https://github.com/us6fu1/it-job-market-observatory/actions/workflows/ci.yml/badge.svg)](https://github.com/us6fu1/it-job-market-observatory/actions/workflows/ci.yml)
+![Python](https://img.shields.io/badge/Python-3.9%2B-3776AB?logo=python&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white)
+![Tests](https://img.shields.io/badge/unit_tests-34_passed-16a34a)
 
-Сейчас готов локальный MVP. Офлайн-контур работает на Python 3.9 без внешних
-пакетов. Интеграция с PostgreSQL 16 проверена на демонстрационных данных: от
-записи RAW и журнала запуска до витрин MART и Streamlit. Доступ к справочнику
-HH проверен, а токен для живого поиска вакансий пока ожидает одобрения.
+ETL-проект для наблюдения за вакансиями Data Analyst, BI Developer и Data
+Engineer. Он получает данные из REST API, сохраняет обезличенный снимок полей
+источника вместе с общей моделью, очищает шумную поисковую выдачу, строит слои
+RAW/STG/DWH/MART в PostgreSQL и показывает результат в Streamlit-дашборде.
 
-## Быстрая офлайн-проверка
+Проект можно проверить без токенов. Для живой загрузки используется открытый
+API «Работа России», а для полностью воспроизводимого запуска есть небольшой
+набор вымышленных данных.
 
-```bash
-python3 -m unittest discover -s tests/unit -v
-python3 -m ingestion sample --input data/sample --output build/sample
+![Превью дашборда IT Job Market Observatory](docs/images/dashboard-preview.svg)
+
+## Что здесь можно посмотреть
+
+- два источника данных с общей внутренней моделью: HeadHunter и «Работа России»;
+- загрузчик с повторными попытками, аудитом HTTP-запросов и защитой от дублей;
+- очистку нерелевантных результатов по прозрачным правилам заголовков;
+- PostgreSQL-модель со снимками вакансий, навыками, регионами и работодателями;
+- аналитический SQL с `JOIN`, CTE, `DENSE_RANK`, `LAG`, `FULL OUTER JOIN`,
+  `PERCENTILE_CONT` и `EXPLAIN ANALYZE`;
+- SQL-проверки качества данных и 34 модульных теста;
+- CI в GitHub Actions с PostgreSQL, SQL-проверками и запуском через Docker Compose;
+- дашборд с общими фильтрами для показателей, вакансий, навыков и динамики.
+
+## Проверенный живой запуск
+
+26 октября 2026 года конвейер был полностью проверен на открытом API «Работа
+России». В выборку вошли записи, которые источник изменял в течение последних
+90 дней. Дата публикации вакансии при этом могла быть более ранней.
+
+| Показатель | Результат |
+| --- | ---: |
+| Строк проверено в поисковой выдаче | 958 |
+| Отсеяно как нерелевантные по названию | 912 |
+| Принято строк после фильтра | 46 |
+| Уникальных профильных вакансий | 36 |
+| Работодателей | 22 |
+| Регионов | 13 |
+| Вакансий с указанной зарплатой | 33 из 36 |
+| Ошибок в шести SQL-проверках качества | 0 |
+
+Этот срез доказывает, что конвейер работает на настоящем API, но не выдаётся за
+полную статистику российского IT-рынка. У источника другой состав работодателей,
+а полнота текстовых навыков ниже, чем у специализированных сайтов с вакансиями.
+Подробности и команды проверки собраны в
+[docs/verification.md](docs/verification.md).
+
+## Архитектура
+
+```mermaid
+flowchart LR
+    Sources[REST API] --> Loader[Python ingestion]
+    Loader --> Files[RAW JSONL]
+    Loader --> Raw[(raw)]
+    Loader --> Audit[(audit)]
+    Raw --> Stg[stg views]
+    Stg --> Dwh[(dwh)]
+    Dwh --> Mart[(mart)]
+    Mart --> Dashboard[Streamlit]
 ```
 
-Данные в `data/sample` вымышлены. Команда проверяет весь путь от сырого JSON до
-нормализованных файлов и сводки, но не создаёт выводы о реальном рынке.
+- `raw` хранит общую модель и обезличенный снимок исходных полей. Контакты из
+  открытого ответа намеренно не переносятся.
+- `audit` фиксирует запуски, запросы, ошибки и поисковые сегменты.
+- `stg` извлекает типизированные поля из JSON.
+- `dwh` хранит измерения, связи и исторические снимки.
+- `mart` содержит готовые показатели для SQL-анализа и дашборда.
 
-## Структура
+Полная схема есть в [docs/architecture.md](docs/architecture.md), ER-модель - в
+[docs/er-model.md](docs/er-model.md), правила расчётов - в
+[docs/methodology.md](docs/methodology.md).
 
-```text
-ingestion/          клиент HH, сегментация, RAW и нормализация
-sql/ddl/            схемы, таблицы, представления и индексы
-sql/staging/        загрузка из STG в DWH
-sql/marts/          описание витрин
-sql/analytics/      аналитические SQL-запросы
-tests/unit/         офлайн-тесты Python и контракта SQL
-tests/data_quality/ SQL-проверки качества
-dashboard/          Streamlit-дашборд
-docs/               архитектура, методика и ER-модель
-data/sample/        вымышленные примеры ответов
-```
+## Быстрый запуск
 
-Подробная схема описана в [docs/architecture.md](docs/architecture.md), правила
-расчётов - в [docs/methodology.md](docs/methodology.md).
-
-## PostgreSQL
-
-Запуск PostgreSQL через Docker:
+Нужны Python 3.9+, Docker и Docker Compose.
 
 ```bash
+git clone https://github.com/us6fu1/it-job-market-observatory.git
+cd it-job-market-observatory
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e .
 cp .env.example .env
 docker compose up -d postgres
-python3 -m pip install .
 export DATABASE_URL='postgresql://job_market:change_me@localhost:5432/job_market'
-python3 scripts/run_sql.py ddl
+python scripts/run_sql.py ddl
 ```
 
-Полную интеграционную цепочку можно проверить на вымышленных данных:
+Живая загрузка из открытого API без регистрации и токена:
 
 ```bash
-python3 scripts/load_sample_to_postgres.py
-python3 scripts/run_sql.py load
-python3 scripts/run_sql.py quality
+python -m ingestion collect-trudvsem \
+  --config config/trudvsem_segments.json \
+  --raw-dir data/raw-trudvsem \
+  --database-url "$DATABASE_URL"
+python scripts/run_sql.py load
+python scripts/run_sql.py quality
+python -m streamlit run dashboard/app.py
 ```
 
-Такой запуск получает источник `synthetic_demo`. Дашборд отдельно предупреждает,
-что записи из него не являются статистикой HeadHunter.
+Дашборд откроется на `http://localhost:8501`. Сырые выгрузки сохраняются только
+локально и исключены из Git.
 
-Пароль в примере нужно заменить. `.env` исключён из Git.
-
-## Реальная загрузка HH
-
-Сначала задайте User-Agent с контактом. `HH_ACCESS_TOKEN` не нужен для
-sample-режима и не мешает разрабатывать или проверять остальной конвейер. Для
-повторяющегося живого поиска вакансий текущий API HH требует токен приложения:
-без него после первого запроса может вернуться капча или HTTP 403.
+## Проверка без интернета
 
 ```bash
-export HH_USER_AGENT='IT-Job-Market-Observatory/0.1 (contact: email@example.com)'
-export HH_ACCESS_TOKEN='полученный-токен'
-python3 -m ingestion roles
-python3 -m ingestion collect \
+python -m unittest discover -s tests/unit -v
+python -m ingestion sample --input data/sample --output build/sample
+python scripts/load_sample_to_postgres.py
+python scripts/run_sql.py load
+python scripts/run_sql.py quality
+```
+
+Файлы в `data/sample` вымышлены. Дашборд явно помечает такой режим и не смешивает
+его с живыми данными.
+
+## HeadHunter
+
+Адаптер HeadHunter сохранён как отдельный источник. Он умеет делить поисковые
+сегменты, контролировать ограничение в 2 000 результатов и загружать детальные
+карточки. Для устойчивого поиска нужен OAuth-токен одобренного API-приложения,
+поэтому проект не притворяется, что токен доступен всем.
+
+Если одобренный токен есть, запуск выглядит так:
+
+```bash
+export HH_USER_AGENT='IT-Job-Market-Observatory/0.2 (contact: email@example.com)'
+export HH_ACCESS_TOKEN='token'
+python -m ingestion collect \
   --config config/search_segments.example.json \
   --raw-dir data/raw \
   --database-url "$DATABASE_URL"
-python3 scripts/run_sql.py load
-python3 scripts/run_sql.py quality
 ```
 
-Старое имя `HH_OAUTH_TOKEN` пока поддерживается как запасной вариант, но новое
-окружение лучше настраивать через `HH_ACCESS_TOKEN`. Токен нельзя добавлять в
-Git: локальный `.env` уже исключён из репозитория.
+Токены, `.env` и сырые ответы API нельзя добавлять в Git.
 
-Перед запуском измените даты и фильтры в конфигурации. Актуальный справочник
-профессиональных ролей загружается отдельной командой: ID ролей не зашиты в код.
-Если минимальный сегмент всё ещё больше 2 000, запуск получает статус `partial`,
-а сегмент - `over_limit`. Такой случай нельзя скрывать или считать полной
-выгрузкой.
+## Структура проекта
 
-## Дашборд
-
-```bash
-python3 -m pip install .
-streamlit run dashboard/app.py
+```text
+ingestion/          API-клиенты, сегментация, очистка и RAW-загрузка
+sql/ddl/            схемы, таблицы, представления и индексы
+sql/staging/        перенос данных из STG в DWH
+sql/analytics/      аналитические запросы
+tests/unit/         модульные тесты
+tests/data_quality/ SQL-проверки качества
+dashboard/          Streamlit-дашборд
+docs/               архитектура, методика и результаты проверки
+data/sample/        воспроизводимый набор вымышленных ответов
 ```
 
-По умолчанию показывается заметно отмеченный офлайн-режим. Для настоящих витрин
-выберите PostgreSQL в боковом меню и задайте `DATABASE_URL`.
+## Ограничения
 
-## Что уже проверяется
-
-- обработка HTTP 429 и 5xx с увеличивающейся задержкой;
-- разбиение сегментов и явный контроль лимита 2 000;
-- отсутствие выдуманной средней для односторонней зарплатной вилки;
-- кэш детальных карточек между запусками;
-- дубли в снимках, границы зарплаты, внешние ключи и обязательные поля;
-- наличие `DENSE_RANK`, `LAG`, `FULL OUTER JOIN`, `PERCENTILE_CONT` и примера
-  `EXPLAIN ANALYZE`.
-
-## Ограничения текущей проверки
-
-Проверены офлайн-тесты, PostgreSQL 16, загрузка RAW, преобразование в DWH,
-витрины, SQL-проверки качества и оба режима дашборда. Живой поиск HH пока не
-завершён из-за отсутствия одобренного токена, поэтому проект не заявляет никаких
-результатов о рынке. Файлы из `data/sample` и строки запуска `synthetic_demo`
-остаются только техническим примером.
+- История начинается с первого запуска проекта.
+- Окно «Работы России» задаётся по дате изменения записи в источнике, а не по
+  дате первоначальной публикации. График новых публикаций использует отдельное
+  поле `published_at` и ограничивается тем же календарным окном.
+- «Работа России» ищет по тексту шире ожидаемого, поэтому после API применяется
+  отдельный фильтр названий. Все правила лежат в конфигурации и видны в аудите.
+- Навыки источника заполнены не всегда. Недостающие технологии извлекаются из
+  текста только по явному словарю, без догадок модели.
+- Исчезновение вакансии из поиска не считается доказательством её закрытия.
+- Зарплатная статистика не строится по вакансиям без обеих границ вилки.
