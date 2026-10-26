@@ -52,6 +52,18 @@ class CollectionPipelineTests(unittest.TestCase):
         self.assertEqual(first_client.detail_calls, ["1", "2"])
         self.assertEqual(second_client.detail_calls, [])
 
+    def test_refresh_loads_duplicate_vacancy_only_once_per_run(self):
+        with tempfile.TemporaryDirectory() as directory:
+            client = FakeClient()
+            result = CollectionPipeline(
+                client,
+                FileRawStore(Path(directory)),
+                refresh_details=True,
+            ).collect([self.segment(), self.segment()])
+
+        self.assertEqual(result["details_loaded"], 2)
+        self.assertEqual(client.detail_calls, ["1", "2"])
+
 
 if __name__ == "__main__":
     unittest.main()

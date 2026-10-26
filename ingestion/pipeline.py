@@ -15,10 +15,18 @@ from ingestion.segmentation import plan_segments
 
 
 class CollectionPipeline:
-    def __init__(self, client: HhClient, store: Any, *, refresh_details: bool = False) -> None:
+    def __init__(
+        self,
+        client: HhClient,
+        store: Any,
+        *,
+        refresh_details: bool = False,
+        result_limit: int = 2000,
+    ) -> None:
         self.client = client
         self.store = store
         self.refresh_details = refresh_details
+        self.result_limit = result_limit
 
     def collect(self, segments: Iterable[SearchSegment]) -> Dict[str, Any]:
         segment_list = list(segments)
@@ -30,13 +38,16 @@ class CollectionPipeline:
             "search_items": 0,
             "unique_vacancies": 0,
             "details_loaded": 0,
+            "filtered_out": 0,
         }
         seen_vacancies = set()
+        detailed_vacancies = set()
         self.store.start_run(run_id, parameters)
         try:
             planned = plan_segments(
                 segment_list,
                 lambda segment: self.client.count(segment.hh_params()),
+                result_limit=self.result_limit,
             )
             for item in planned:
                 if item.status == "over_limit":
@@ -45,7 +56,12 @@ class CollectionPipeline:
                     continue
                 counts["segments_ready"] += 1
                 self.store.record_segment(item, status="running")
-                received = self._collect_segment(item, seen_vacancies, counts)
+                received = self._collect_segment(
+                    item,
+                    seen_vacancies,
+                    detailed_vacancies,
+                    counts,
+                )
                 self.store.record_segment(item, received=received, status="success")
             counts["unique_vacancies"] = len(seen_vacancies)
             final_status = "partial" if counts["segments_over_limit"] else "success"
@@ -60,6 +76,7 @@ class CollectionPipeline:
         self,
         planned: PlannedSegment,
         seen_vacancies: set,
+        detailed_vacancies: set,
         counts: Dict[str, int],
     ) -> int:
         segment = planned.segment
@@ -68,6 +85,9 @@ class CollectionPipeline:
             self.client.iter_search_pages(segment.hh_params())
         ):
             for payload in response.get("items", []):
+                if not segment.matches_title(payload.get("name")):
+                    counts["filtered_out"] += 1
+                    continue
                 vacancy_id = str(payload.get("id"))
                 if not vacancy_id or vacancy_id == "None":
                     continue
@@ -81,7 +101,14 @@ class CollectionPipeline:
                     payload=payload,
                 )
                 comparison_marker = payload.get("updated_at") or payload_hash(payload)
-                if self.store.needs_detail(vacancy_id, comparison_marker, self.refresh_details):
+                if (
+                    vacancy_id not in detailed_vacancies
+                    and self.store.needs_detail(
+                        vacancy_id,
+                        comparison_marker,
+                        self.refresh_details,
+                    )
+                ):
                     detail = self.client.get_vacancy(vacancy_id)
                     detail_changed_at = detail.get("updated_at") or payload.get("updated_at")
                     self.store.record_detail(
@@ -90,6 +117,7 @@ class CollectionPipeline:
                         detail,
                         comparison_marker=comparison_marker,
                     )
+                    detailed_vacancies.add(vacancy_id)
                     counts["details_loaded"] += 1
         return received
 

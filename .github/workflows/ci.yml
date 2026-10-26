@@ -1,0 +1,47 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: postgresql://job_market:change_me@localhost:5432/job_market
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: job_market
+          POSTGRES_USER: job_market
+          POSTGRES_PASSWORD: change_me
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U job_market -d job_market"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install project
+        run: python -m pip install -e .
+      - name: Compile Python
+        run: python -m compileall -q ingestion dashboard scripts
+      - name: Run unit tests
+        run: python -m unittest discover -s tests/unit -v
+      - name: Build reproducible sample
+        run: python -m ingestion sample --input data/sample --output build/sample
+      - name: Initialize PostgreSQL
+        run: python scripts/run_sql.py ddl
+      - name: Load sample through RAW, DWH and MART
+        run: |
+          python scripts/load_sample_to_postgres.py
+          python scripts/run_sql.py load
+      - name: Run SQL data-quality checks
+        run: python scripts/run_sql.py quality

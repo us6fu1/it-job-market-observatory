@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "it-job-market-observatory"
-version = "0.1.0"
-description = "Наблюдение за рынком вакансий Data Analyst, BI Developer и Data Engineer"
+version = "0.2.0"
+description = "ETL и аналитические витрины вакансий Data Analyst, BI Developer и Data Engineer"
 readme = "README.md"
 requires-python = ">=3.9"
 dependencies = [
