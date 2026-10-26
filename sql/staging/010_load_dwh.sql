@@ -98,7 +98,7 @@ DELETE FROM dwh.bridge_vacancy_skill AS bridge
 USING dwh.dim_vacancy AS vacancy
 WHERE bridge.vacancy_sk = vacancy.vacancy_sk
   AND EXISTS (
-      SELECT 1 FROM stg.v_vacancy_skill AS source
+      SELECT 1 FROM stg.v_vacancy_job_group AS source
       WHERE source.vacancy_id = vacancy.vacancy_id
   );
 
@@ -129,6 +129,15 @@ FROM stg.v_vacancy_professional_role AS source
 JOIN dwh.dim_vacancy AS v ON v.vacancy_id = source.vacancy_id
 JOIN dwh.dim_hh_professional_role AS r ON r.role_id = source.role_id
 ON CONFLICT (vacancy_sk, role_sk) DO NOTHING;
+
+DELETE FROM dwh.bridge_vacancy_job_group AS bridge
+USING dwh.dim_vacancy AS vacancy
+WHERE bridge.vacancy_sk = vacancy.vacancy_sk
+  AND EXISTS (
+      SELECT 1
+      FROM stg.v_vacancy_job_group AS source
+      WHERE source.vacancy_id = vacancy.vacancy_id
+  );
 
 INSERT INTO dwh.bridge_vacancy_job_group (
     vacancy_sk,

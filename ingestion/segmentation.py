@@ -74,10 +74,22 @@ def plan_segments(
     return result
 
 
-def load_segments(path: Path) -> List[SearchSegment]:
+def load_segments(path: Path, *, today: date = None) -> List[SearchSegment]:
     payload = json.loads(path.read_text(encoding="utf-8"))
+    current_date = today or date.today()
     global_from = payload.get("date_from")
     global_to = payload.get("date_to")
+    days_back = payload.get("days_back")
+    if global_to == "today":
+        global_to = current_date.isoformat()
+    if days_back is not None and not global_from:
+        days_back = int(days_back)
+        if days_back < 1:
+            raise ValueError("days_back должен быть положительным")
+        global_to = global_to or current_date.isoformat()
+        global_from = (
+            date.fromisoformat(global_to) - timedelta(days=days_back - 1)
+        ).isoformat()
     segments = []
     for item in payload.get("segments", []):
         date_from = item.get("date_from", global_from)
@@ -94,6 +106,7 @@ def load_segments(path: Path) -> List[SearchSegment]:
                 professional_role_ids=tuple(
                     str(value) for value in item.get("professional_role_ids", [])
                 ),
+                title_patterns=tuple(str(value) for value in item.get("title_patterns", [])),
             )
         )
     if not segments:

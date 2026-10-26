@@ -1,0 +1,41 @@
+{
+  "days_back": 90,
+  "date_to": "today",
+  "segments": [
+    {
+      "job_group": "data_analyst",
+      "text": "аналитик данных",
+      "title_patterns": ["аналитик.{0,30}данн", "data\\s+analyst"]
+    },
+    {
+      "job_group": "data_analyst",
+      "text": "Data Analyst",
+      "title_patterns": ["аналитик.{0,30}данн", "data\\s+analyst"]
+    },
+    {
+      "job_group": "bi_developer",
+      "text": "BI разработчик",
+      "title_patterns": ["(?:bi|power\\s*bi|dwh|qlik).*(?:разработ|developer|аналитик|архитект)", "(?:разработ|developer|аналитик|архитект).*(?:bi|power\\s*bi|dwh|qlik)"]
+    },
+    {
+      "job_group": "bi_developer",
+      "text": "разработчик BI",
+      "title_patterns": ["(?:bi|power\\s*bi|dwh|qlik).*(?:разработ|developer|аналитик|архитект)", "(?:разработ|developer|аналитик|архитект).*(?:bi|power\\s*bi|dwh|qlik)"]
+    },
+    {
+      "job_group": "bi_developer",
+      "text": "аналитик DWH",
+      "title_patterns": ["(?:bi|power\\s*bi|dwh|qlik).*(?:разработ|developer|аналитик|архитект)", "(?:разработ|developer|аналитик|архитект).*(?:bi|power\\s*bi|dwh|qlik)"]
+    },
+    {
+      "job_group": "data_engineer",
+      "text": "Data Engineer",
+      "title_patterns": ["data\\s+engineer", "инженер\\s+(?:по\\s+)?данн"]
+    },
+    {
+      "job_group": "data_engineer",
+      "text": "инженер данных",
+      "title_patterns": ["data\\s+engineer", "инженер\\s+(?:по\\s+)?данн"]
+    }
+  ]
+}

@@ -141,6 +141,7 @@ class PostgresRawStore:
                     rows_received = %s,
                     unique_vacancies = %s,
                     details_loaded = %s,
+                    filtered_out = %s,
                     error_message = %s
                 WHERE run_id = %s
                 """,
@@ -149,6 +150,7 @@ class PostgresRawStore:
                     counts.get("search_items", 0),
                     counts.get("unique_vacancies", 0),
                     counts.get("details_loaded", 0),
+                    counts.get("filtered_out", 0),
                     error,
                     self.run_id,
                 ),

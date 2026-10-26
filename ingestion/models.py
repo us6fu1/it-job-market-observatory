@@ -4,6 +4,7 @@ from dataclasses import dataclass, replace
 from datetime import date
 import hashlib
 import json
+import re
 from typing import Any, Dict, Optional, Tuple
 
 
@@ -15,6 +16,7 @@ class SearchSegment:
     date_to: date
     area_ids: Tuple[str, ...] = ()
     professional_role_ids: Tuple[str, ...] = ()
+    title_patterns: Tuple[str, ...] = ()
     parent_id: Optional[str] = None
 
     def __post_init__(self) -> None:
@@ -37,7 +39,14 @@ class SearchSegment:
             "date_to": self.date_to.isoformat(),
             "area_ids": list(self.area_ids),
             "professional_role_ids": list(self.professional_role_ids),
+            "title_patterns": list(self.title_patterns),
         }
+
+    def matches_title(self, title: Any) -> bool:
+        if not self.title_patterns:
+            return True
+        value = str(title or "")
+        return any(re.search(pattern, value, flags=re.IGNORECASE) for pattern in self.title_patterns)
 
     def hh_params(self, page: int = 0, per_page: int = 100) -> Dict[str, Any]:
         params: Dict[str, Any] = {

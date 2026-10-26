@@ -5,7 +5,7 @@ import os
 from typing import Mapping, Optional
 
 
-DEFAULT_USER_AGENT = "IT-Job-Market-Observatory/0.1 (local-mvp)"
+DEFAULT_USER_AGENT = "IT-Job-Market-Observatory/0.2 (local-mvp)"
 
 
 @dataclass(frozen=True)

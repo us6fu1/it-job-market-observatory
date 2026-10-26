@@ -98,15 +98,32 @@ GROUP BY
     current.salary_currency;
 
 CREATE OR REPLACE VIEW mart.v_weekly_new_vacancies AS
-WITH first_publication AS (
+WITH latest_run AS (
+    SELECT run_id, parameters
+    FROM audit.etl_run
+    WHERE status IN ('success', 'partial')
+    ORDER BY started_at DESC
+    LIMIT 1
+), analysis_window AS (
+    SELECT
+        min((segment ->> 'date_from')::date) AS date_from,
+        max((segment ->> 'date_to')::date) AS date_to
+    FROM latest_run
+    CROSS JOIN LATERAL jsonb_array_elements(
+        COALESCE(parameters -> 'segments', '[]'::jsonb)
+    ) AS segment
+), first_publication AS (
     SELECT
         vg.job_group_sk,
-        date_trunc('week', v.published_at)::date AS week_start,
-        count(DISTINCT v.vacancy_sk) AS new_vacancies
-    FROM dwh.dim_vacancy AS v
-    JOIN dwh.bridge_vacancy_job_group AS vg ON vg.vacancy_sk = v.vacancy_sk
-    WHERE v.published_at IS NOT NULL
-    GROUP BY vg.job_group_sk, date_trunc('week', v.published_at)::date
+        date_trunc('week', current.published_at)::date AS week_start,
+        count(DISTINCT current.vacancy_sk) AS new_vacancies
+    FROM mart.v_current_vacancies AS current
+    JOIN dwh.bridge_vacancy_job_group AS vg
+      ON vg.vacancy_sk = current.vacancy_sk
+    CROSS JOIN analysis_window AS bounds
+    WHERE current.published_at IS NOT NULL
+      AND current.published_at::date BETWEEN bounds.date_from AND bounds.date_to
+    GROUP BY vg.job_group_sk, date_trunc('week', current.published_at)::date
 ), with_previous AS (
     SELECT
         *,

@@ -8,6 +8,7 @@ __pycache__/
 .ruff_cache/
 build/
 data/raw/
+data/raw-trudvsem/
 *.log
 
 # Локальный бриф разработки, не часть публичного проекта.
