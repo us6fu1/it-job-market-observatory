@@ -1,10 +1,26 @@
 CREATE OR REPLACE VIEW mart.v_current_vacancies AS
-WITH latest_run AS (
-    SELECT run_id
+WITH latest_runs AS (
+    SELECT DISTINCT ON (source)
+        run_id,
+        source,
+        started_at,
+        finished_at
     FROM audit.etl_run
     WHERE status IN ('success', 'partial')
-    ORDER BY started_at DESC
-    LIMIT 1
+    ORDER BY source, started_at DESC
+), selected_runs AS (
+    SELECT *
+    FROM latest_runs
+    WHERE source <> 'synthetic_demo'
+
+    UNION ALL
+
+    SELECT *
+    FROM latest_runs
+    WHERE source = 'synthetic_demo'
+      AND NOT EXISTS (
+          SELECT 1 FROM latest_runs WHERE source <> 'synthetic_demo'
+      )
 )
 SELECT
     f.run_id,
@@ -20,9 +36,12 @@ SELECT
     f.salary_currency,
     f.salary_gross,
     f.salary_period,
-    f.work_formats
+    f.work_formats,
+    r.source,
+    r.started_at AS run_started_at,
+    r.finished_at AS run_finished_at
 FROM dwh.fact_vacancy_snapshot AS f
-JOIN latest_run AS r ON r.run_id = f.run_id
+JOIN selected_runs AS r ON r.run_id = f.run_id
 JOIN dwh.dim_vacancy AS v ON v.vacancy_sk = f.vacancy_sk
 WHERE f.is_available;
 
@@ -98,17 +117,32 @@ GROUP BY
     current.salary_currency;
 
 CREATE OR REPLACE VIEW mart.v_weekly_new_vacancies AS
-WITH latest_run AS (
-    SELECT run_id, parameters
+WITH latest_runs AS (
+    SELECT DISTINCT ON (source)
+        run_id,
+        source,
+        parameters
     FROM audit.etl_run
     WHERE status IN ('success', 'partial')
-    ORDER BY started_at DESC
-    LIMIT 1
+    ORDER BY source, started_at DESC
+), selected_runs AS (
+    SELECT *
+    FROM latest_runs
+    WHERE source <> 'synthetic_demo'
+
+    UNION ALL
+
+    SELECT *
+    FROM latest_runs
+    WHERE source = 'synthetic_demo'
+      AND NOT EXISTS (
+          SELECT 1 FROM latest_runs WHERE source <> 'synthetic_demo'
+      )
 ), analysis_window AS (
     SELECT
         min((segment ->> 'date_from')::date) AS date_from,
         max((segment ->> 'date_to')::date) AS date_to
-    FROM latest_run
+    FROM selected_runs
     CROSS JOIN LATERAL jsonb_array_elements(
         COALESCE(parameters -> 'segments', '[]'::jsonb)
     ) AS segment

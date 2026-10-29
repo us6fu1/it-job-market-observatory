@@ -36,6 +36,19 @@ class SqlContractTests(unittest.TestCase):
     def test_salary_constraint_is_present(self):
         self.assertIn("SALARY_FROM <= SALARY_TO", self.ddl)
 
+    def test_current_mart_keeps_latest_run_of_each_source(self):
+        self.assertIn("DISTINCT ON (SOURCE)", self.ddl)
+        self.assertIn("ORDER BY SOURCE, STARTED_AT DESC", self.ddl)
+        self.assertIn("SOURCE <> 'SYNTHETIC_DEMO'", self.ddl)
+
+    def test_quality_check_uses_source_specific_result_limit(self):
+        quality = (ROOT / "tests" / "data_quality" / "001_core_checks.sql").read_text(
+            encoding="utf-8"
+        ).upper()
+        self.assertIn("SEGMENT_OVER_SOURCE_LIMIT", quality)
+        self.assertIn("TRUDVSEM_API", quality)
+        self.assertIn("10000", quality)
+
 
 if __name__ == "__main__":
     unittest.main()

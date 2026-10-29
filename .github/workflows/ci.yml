@@ -45,3 +45,5 @@ jobs:
           python scripts/run_sql.py load
       - name: Run SQL data-quality checks
         run: python scripts/run_sql.py quality
+      - name: Smoke-test dashboard against PostgreSQL
+        run: python scripts/smoke_dashboard.py

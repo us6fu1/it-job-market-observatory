@@ -31,11 +31,15 @@ WITH checks AS (
     UNION ALL
 
     SELECT
-        'segment_over_2000',
+        'segment_over_source_limit',
         count(*)
-    FROM audit.search_segment
-    WHERE found > 2000
-      AND status <> 'over_limit'
+    FROM audit.search_segment AS segment
+    JOIN audit.etl_run AS run ON run.run_id = segment.run_id
+    WHERE segment.found > CASE
+            WHEN run.source = 'trudvsem_api' THEN 10000
+            ELSE 2000
+        END
+      AND segment.status <> 'over_limit'
 
     UNION ALL
 
@@ -52,6 +56,16 @@ WITH checks AS (
         COALESCE(sum(rejected_rows), 0)::bigint
     FROM audit.etl_run
     WHERE status IN ('success', 'partial')
+
+    UNION ALL
+
+    SELECT
+        'vacancy_without_job_group',
+        count(*)
+    FROM mart.v_current_vacancies AS current
+    LEFT JOIN dwh.bridge_vacancy_job_group AS bridge
+      ON bridge.vacancy_sk = current.vacancy_sk
+    WHERE bridge.vacancy_sk IS NULL
 )
 SELECT check_name, failed_rows
 FROM checks

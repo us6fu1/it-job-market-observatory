@@ -1,5 +1,7 @@
 """Streamlit-витрина IT Job Market Observatory."""
 
+import csv
+from io import StringIO
 import json
 import os
 from datetime import datetime
@@ -15,7 +17,11 @@ if str(ROOT) not in sys.path:
 import streamlit as st
 
 from ingestion.pipeline import build_sample
-from dashboard.metrics import filtered_skill_rows, filtered_weekly_rows
+from dashboard.metrics import (
+    filtered_salary_rows,
+    filtered_skill_rows,
+    filtered_weekly_rows,
+)
 
 
 st.set_page_config(
@@ -114,16 +120,29 @@ def load_postgres(database_url: str) -> Dict[str, Any]:
         with connection.cursor() as cursor:
             cursor.execute(
                 """
-                SELECT run_id, source, status, started_at, finished_at, parameters,
-                       rows_received, unique_vacancies, details_loaded,
-                       filtered_out, rejected_rows
-                FROM audit.etl_run
-                WHERE status IN ('success', 'partial')
+                WITH latest AS (
+                    SELECT DISTINCT ON (source)
+                           run_id, source, status, started_at, finished_at, parameters,
+                           rows_received, unique_vacancies, details_loaded,
+                           filtered_out, rejected_rows
+                    FROM audit.etl_run
+                    WHERE status IN ('success', 'partial')
+                    ORDER BY source, started_at DESC
+                ), selected AS (
+                    SELECT * FROM latest WHERE source <> 'synthetic_demo'
+                    UNION ALL
+                    SELECT * FROM latest
+                    WHERE source = 'synthetic_demo'
+                      AND NOT EXISTS (
+                          SELECT 1 FROM latest WHERE source <> 'synthetic_demo'
+                      )
+                )
+                SELECT *
+                FROM selected
                 ORDER BY started_at DESC
-                LIMIT 1
                 """
             )
-            run = dict(cursor.fetchone() or {})
+            runs = [dict(row) for row in cursor.fetchall()]
             cursor.execute(
                 """
                 SELECT count(*) AS unique_vacancies,
@@ -175,7 +194,8 @@ def load_postgres(database_url: str) -> Dict[str, Any]:
             weekly = [dict(row) for row in cursor.fetchall()]
             cursor.execute(
                 """
-                SELECT current.vacancy_id, current.vacancy_name,
+                SELECT current.source, current.run_id,
+                       current.vacancy_id, current.vacancy_name,
                        employer.employer_name, area.area_name,
                        current.published_at, current.salary_from, current.salary_to,
                        current.salary_currency, current.work_formats,
@@ -194,7 +214,8 @@ def load_postgres(database_url: str) -> Dict[str, Any]:
                   ON vacancy_skill.vacancy_sk = current.vacancy_sk
                 LEFT JOIN dwh.dim_skill AS skill
                   ON skill.skill_sk = vacancy_skill.skill_sk
-                GROUP BY current.vacancy_id, current.vacancy_name,
+                GROUP BY current.source, current.run_id,
+                         current.vacancy_id, current.vacancy_name,
                          employer.employer_name, area.area_name, current.published_at,
                          current.salary_from, current.salary_to, current.salary_currency,
                          current.work_formats, vacancy.alternate_url
@@ -204,7 +225,8 @@ def load_postgres(database_url: str) -> Dict[str, Any]:
             vacancies = [dict(row) for row in cursor.fetchall()]
             quality: Dict[str, Any] = {}
             segments: List[Dict[str, Any]] = []
-            if run:
+            run_ids = [str(run["run_id"]) for run in runs]
+            if run_ids:
                 cursor.execute(
                     """
                     SELECT count(*) AS requests,
@@ -214,19 +236,21 @@ def load_postgres(database_url: str) -> Dict[str, Any]:
                                WHERE status_code >= 500 OR error_message IS NOT NULL
                            ) AS request_errors
                     FROM audit.api_request
-                    WHERE run_id = %s
+                    WHERE run_id = ANY(%s::uuid[])
                     """,
-                    (run["run_id"],),
+                    (run_ids,),
                 )
                 quality = dict(cursor.fetchone())
                 cursor.execute(
                     """
-                    SELECT segment_id, job_group_code, found, received, status
-                    FROM audit.search_segment
-                    WHERE run_id = %s
-                    ORDER BY job_group_code, segment_id
+                    SELECT run.source, segment.segment_id, segment.job_group_code,
+                           segment.found, segment.received, segment.status
+                    FROM audit.search_segment AS segment
+                    JOIN audit.etl_run AS run ON run.run_id = segment.run_id
+                    WHERE segment.run_id = ANY(%s::uuid[])
+                    ORDER BY run.source, segment.job_group_code, segment.segment_id
                     """,
-                    (run["run_id"],),
+                    (run_ids,),
                 )
                 segments = [dict(row) for row in cursor.fetchall()]
 
@@ -235,7 +259,7 @@ def load_postgres(database_url: str) -> Dict[str, Any]:
         int(summary.get("vacancies_with_salary") or 0) / total if total else 0
     )
     return {
-        "run": run,
+        "runs": runs,
         "summary": summary,
         "overview": overview,
         "skills": skills,
@@ -256,6 +280,26 @@ def _display_time(value: Any) -> str:
     if isinstance(value, datetime):
         return value.astimezone().strftime("%d.%m.%Y %H:%M")
     return str(value or "-")
+
+
+def _source_name(value: Any) -> str:
+    return {
+        "trudvsem": "Работа России",
+        "trudvsem_api": "Работа России",
+        "hh": "HeadHunter",
+        "hh_api": "HeadHunter",
+        "synthetic_demo": "Демонстрационный набор",
+    }.get(str(value or ""), str(value or "Неизвестный источник"))
+
+
+def _to_csv(rows: List[Dict[str, Any]]) -> bytes:
+    if not rows:
+        return b""
+    output = StringIO()
+    writer = csv.DictWriter(output, fieldnames=list(rows[0]))
+    writer.writeheader()
+    writer.writerows(rows)
+    return output.getvalue().encode("utf-8-sig")
 
 
 def _hero() -> None:
@@ -317,24 +361,28 @@ def render_demo() -> None:
 
 
 def render_postgres(data: Dict[str, Any]) -> None:
-    run = data["run"]
-    source_name = {
-        "trudvsem": "Работа России",
-        "trudvsem_api": "Работа России",
-        "hh": "HeadHunter",
-        "synthetic_demo": "демонстрационный набор",
-    }.get(run.get("source"), run.get("source", "неизвестный источник"))
-    if run.get("source") == "synthetic_demo":
+    runs = data["runs"]
+    source_codes = [str(run.get("source") or "") for run in runs]
+    if source_codes and all(source == "synthetic_demo" for source in source_codes):
         card_class = "demo-card"
         source_text = "В базе сейчас демонстрационные данные. Это технический прогон, а не срез рынка."
     else:
         card_class = "source-card"
+        source_names = ", ".join(_source_name(source) for source in source_codes)
+        latest_time = max(
+            (
+                run.get("finished_at") or run.get("started_at")
+                for run in runs
+                if run.get("finished_at") or run.get("started_at")
+            ),
+            default=None,
+        )
         source_text = (
-            "Живая загрузка из открытого API «{}». Последний запуск: {}. Статус: {}."
+            "Витрина объединяет последние завершённые снимки источников: {}. "
+            "Последнее обновление: {}."
         ).format(
-            source_name,
-            _display_time(run.get("finished_at") or run.get("started_at")),
-            run.get("status", "-"),
+            source_names or "источники не найдены",
+            _display_time(latest_time),
         )
     st.markdown(
         '<div class="{}">{}</div>'.format(card_class, source_text),
@@ -347,6 +395,15 @@ def render_postgres(data: Dict[str, Any]) -> None:
     all_regions = sorted(
         {row.get("area_name") or "Не указан" for row in data["vacancies"]}
     )
+    all_sources = sorted(
+        {str(row.get("source") or "") for row in data["vacancies"]}
+    )
+    selected_sources = st.sidebar.multiselect(
+        "Источники",
+        all_sources,
+        default=all_sources,
+        format_func=_source_name,
+    )
     selected_groups = st.sidebar.multiselect(
         "Направления", all_groups, default=all_groups
     )
@@ -355,6 +412,7 @@ def render_postgres(data: Dict[str, Any]) -> None:
 
     vacancies = []
     for row in data["vacancies"]:
+        source_match = not selected_sources or row.get("source") in selected_sources
         groups_match = not selected_groups or bool(
             set(row.get("job_groups", [])) & set(selected_groups)
         )
@@ -365,7 +423,7 @@ def render_postgres(data: Dict[str, Any]) -> None:
             or row.get("salary_from") is not None
             or row.get("salary_to") is not None
         )
-        if groups_match and region_match and salary_match:
+        if source_match and groups_match and region_match and salary_match:
             vacancies.append(row)
 
     salary_count = sum(
@@ -394,8 +452,8 @@ def render_postgres(data: Dict[str, Any]) -> None:
         "{:.0%}".format(salary_count / len(vacancies) if vacancies else 0),
     )
 
-    overview_tab, skills_tab, vacancies_tab, quality_tab = st.tabs(
-        ["Обзор", "Навыки", "Вакансии", "Качество данных"]
+    overview_tab, salary_tab, skills_tab, vacancies_tab, quality_tab = st.tabs(
+        ["Обзор", "Зарплаты", "Навыки", "Вакансии", "Качество данных"]
     )
     with overview_tab:
         left, right = st.columns([1.35, 1])
@@ -423,7 +481,7 @@ def render_postgres(data: Dict[str, Any]) -> None:
                 ]
             )
             st.bar_chart(top_regions, horizontal=True)
-        weekly_rows = filtered_weekly_rows(vacancies, selected_groups, run)
+        weekly_rows = filtered_weekly_rows(vacancies, selected_groups, runs)
         if weekly_rows:
             st.subheader("Публикации по неделям")
             st.line_chart(
@@ -432,6 +490,36 @@ def render_postgres(data: Dict[str, Any]) -> None:
                 y="Новые вакансии",
                 color="Направление",
             )
+
+    with salary_tab:
+        st.subheader("Медианная зарплатная вилка")
+        st.markdown(
+            '<div class="section-note">Расчёт использует только вакансии с обеими границами вилки. Валюты не смешиваются.</div>',
+            unsafe_allow_html=True,
+        )
+        salary_rows = filtered_salary_rows(vacancies, selected_groups)
+        if salary_rows:
+            st.bar_chart(
+                salary_rows,
+                x="Направление",
+                y="Медиана середины вилки",
+                color="Валюта",
+            )
+            st.dataframe(
+                [
+                    {
+                        **row,
+                        "Медиана середины вилки": _money(
+                            row["Медиана середины вилки"]
+                        ),
+                    }
+                    for row in salary_rows
+                ],
+                width="stretch",
+                hide_index=True,
+            )
+        else:
+            st.info("В выбранном срезе нет полных зарплатных вилок.")
 
     with skills_tab:
         st.subheader("Навыки, найденные в требованиях")
@@ -459,6 +547,7 @@ def render_postgres(data: Dict[str, Any]) -> None:
         )
         table = [
             {
+                "Источник": _source_name(row.get("source")),
                 "Вакансия": row["vacancy_name"],
                 "Направление": ", ".join(row.get("job_groups") or []),
                 "Работодатель": row.get("employer_name") or "-",
@@ -483,20 +572,29 @@ def render_postgres(data: Dict[str, Any]) -> None:
                 "Ссылка": st.column_config.LinkColumn("Ссылка", display_text="Открыть")
             },
         )
+        st.download_button(
+            "Скачать выбранный срез в CSV",
+            data=_to_csv(table),
+            file_name="job_market_vacancies.csv",
+            mime="text/csv",
+            disabled=not table,
+        )
 
     with quality_tab:
         st.subheader("Контроль последней загрузки")
         quality = data["quality"]
+        rows_received = sum(int(run.get("rows_received") or 0) for run in runs)
+        filtered_out = sum(int(run.get("filtered_out") or 0) for run in runs)
         quality_columns = st.columns(5)
         quality_columns[0].metric(
             "Проверено строк",
-            int(run.get("rows_received") or 0) + int(run.get("filtered_out") or 0),
+            rows_received + filtered_out,
         )
         quality_columns[1].metric(
-            "После фильтра", int(run.get("rows_received") or 0)
+            "После фильтра", rows_received
         )
         quality_columns[2].metric(
-            "Уникальных", int(run.get("unique_vacancies") or 0)
+            "Уникальных", len(data["vacancies"])
         )
         quality_columns[3].metric(
             "API-запросов", int(quality.get("requests") or 0)
@@ -512,6 +610,7 @@ def render_postgres(data: Dict[str, Any]) -> None:
             st.dataframe(
                 [
                     {
+                        "Источник": _source_name(row["source"]),
                         "Направление": row["job_group_code"],
                         "Найдено источником": row["found"],
                         "Прошло фильтр заголовка": row["received"],

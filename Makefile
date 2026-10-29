@@ -1,6 +1,6 @@
 PYTHON ?= python3
 
-.PHONY: test verify sample live db-up db-down db-init db-sample db-load db-quality dashboard
+.PHONY: test verify sample live db-up db-down db-init db-sample db-load db-quality db-verify dashboard dashboard-check
 
 test:
 	$(PYTHON) -m unittest discover -s tests/unit -v
@@ -30,6 +30,11 @@ db-load:
 
 db-quality:
 	$(PYTHON) scripts/run_sql.py quality
+
+db-verify: db-init db-sample db-load db-quality dashboard-check
+
+dashboard-check:
+	$(PYTHON) scripts/smoke_dashboard.py
 
 dashboard:
 	$(PYTHON) -m streamlit run dashboard/app.py
